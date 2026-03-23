@@ -190,6 +190,26 @@ Is it a bug fix?
         -> NO: At minimum, a code changes flowchart
 ```
 
+## Mermaid Syntax — GitHub Compatibility
+
+GitHub's Mermaid renderer is strict. Follow these rules to avoid parse errors:
+
+1. **Subgraph IDs must not start with or be bare numbers.** Use `subgraph MyId["Label 012"]` instead of `subgraph Label 012`
+2. **Node IDs must be alphanumeric identifiers** (no spaces, no leading digits). Put display text in `["..."]`
+3. **Avoid special characters in bare labels**: parentheses, colons, pipes, ampersands, and quotes must be inside `["..."]`
+4. **Link labels** use `-->|"label text"| B` — quote the label if it contains spaces or special chars
+5. **Keep diagrams simple**: max ~15 nodes per diagram. Split into multiple diagrams if needed
+6. **Always test mentally**: if an ID or label contains numbers, spaces, or symbols, wrap it in `["..."]`
+
+### Common mistakes → fixes
+
+| Broken | Fixed |
+|--------|-------|
+| `subgraph Migration 012` | `subgraph Mig012["Migration 012"]` |
+| `A -->\|schema\| Migration 012` | `A -.->\|schema\| Mig012` |
+| `Node (optional)` | `Node["Node (optional)"]` |
+| `DB: PostgreSQL` | `DB["DB: PostgreSQL"]` |
+
 ## Anti-patterns
 
 - Don't skip diagrams - they are the most valuable part of the PR description
