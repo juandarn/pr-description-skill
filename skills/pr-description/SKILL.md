@@ -20,7 +20,7 @@ When creating or updating a pull request, ALWAYS generate a comprehensive, visua
 
 ## PR Description Template
 
-```markdown
+````markdown
 ## Summary
 
 [1-3 bullet points explaining WHAT changed and WHY, in plain language]
@@ -73,7 +73,106 @@ flowchart LR
 - [ ] Documentation Update
 - [ ] Testing Coverage
 - [ ] Other
+
+## Evidence (Before/After)
+
+<!-- Backend / API / service — run locally, exercise with real requests, capture stdout/responses, render to PNG: -->
+![Working run](https://github.com/{owner}/{repo}/releases/download/pr-evidence/pr-{N}-evidence.png)
+
+<!-- UI — run the app locally, drive the real screen with Playwright, screenshot actual rendered UI: -->
+| Before | After |
+|--------|-------|
+| ![Before](https://github.com/{owner}/{repo}/releases/download/pr-evidence/pr-{N}-before.png) | ![After](https://github.com/{owner}/{repo}/releases/download/pr-evidence/pr-{N}-after.png) |
+
+<!-- New component — no prior screen exists, after-only: -->
+![After](https://github.com/{owner}/{repo}/releases/download/pr-evidence/pr-{N}-evidence.png)
+
+<!-- CLI / hooks / scripts — run the real command, capture real output, screenshot it: -->
+![Real output](https://github.com/{owner}/{repo}/releases/download/pr-evidence/pr-{N}-evidence.png)
+
+<!-- Fallback only when the service genuinely cannot be run locally (hard external deps, secrets): capture from a real deployed run or emit an explicit placeholder for the author — NEVER invent or mock the image: -->
+| Before | After |
+|--------|-------|
+| _[author: attach REAL BEFORE screenshot here — no mocks]_ | _[author: attach REAL AFTER screenshot here — no mocks]_ |
+````
+
+## Evidence Contract
+
+Every evidence artifact follows three provider-agnostic steps: **Capture → Upload → Embed**. The key constraint: **Capture MUST derive from a genuine run of the real system**. Fabricated, illustrated, or mocked output is a defect.
+
+### Capture (mandatory — real run only)
+
+The evidence image MUST be derived from the change actually working:
+
+1. Run the service/app locally on the PR branch (install deps in a venv/virtualenv; stub only unavoidable external calls like downstream microservices that require secrets or live infra; disable tracing/telemetry).
+2. Exercise the feature for real — send real requests / drive the real UI. Include a positive case AND a negative/contrast case where it makes sense.
+3. Capture the REAL output to files: server stdout/logs, real HTTP responses, real command output.
+4. Render that captured output into a PNG — read the real output files and inject their verbatim content (e.g. via a Playwright screenshot of a styled HTML page built from the captured text). The image text is COPIED from the captured files, not authored by the agent.
+
+If the service genuinely cannot be run locally (hard external deps, unavailable secrets), fall back to capturing from a real deployed run (e.g. real logs from an observability platform). Last resort only: emit an explicitly-labeled author-screenshot placeholder — never invent the picture.
+
+### Upload (GitHub draft-release asset)
+
+Push the PNG as a release asset on a persistent draft release named `pr-evidence`. Asset names MUST be unique per PR (e.g. `pr-{N}-evidence.png`).
+
 ```
+# Ensure the draft release exists (create once, reuse forever)
+gh release view pr-evidence --repo {owner}/{repo} >/dev/null 2>&1 || \
+  gh release create pr-evidence --repo {owner}/{repo} --draft \
+    --title "PR Evidence (automated)" \
+    --notes "Hidden reusable container for automated PR evidence screenshots."
+
+# Upload (--clobber replaces if already exists)
+gh release upload pr-evidence ./pr-{N}-evidence.png --repo {owner}/{repo} --clobber
+
+# Retrieve the asset URL
+URL=$(gh release view pr-evidence --repo {owner}/{repo} \
+  --json assets --jq '.assets[]|select(.name=="pr-{N}-evidence.png")|.url')
+```
+
+**Private-repo note**: an anonymous `curl` of the asset URL returns 404 — do not interpret this as a broken upload. The asset renders correctly for any logged-in reviewer with repo access (served same-origin, not via the camo proxy). This hosting approach lives entirely outside the git tree: no branches, no blobs in history, no tag (a draft release carries no tag).
+
+### Embed
+
+Post the image as a PR comment and/or include it in the description:
+
+```
+gh pr comment {N} --repo {owner}/{repo} --body "![evidence](${URL})"
+```
+
+### Provider resolution order (pick the first available)
+
+1. **Automated real-run capture** — run the service locally, exercise it, capture real output, render to PNG, upload as a release asset, embed. This is the default and expected path.
+2. **Generic Playwright capture** — for UI changes: run the app locally, drive the real screen with Playwright, screenshot the actual rendered UI (before/after), upload as release assets, embed.
+3. **Real deployed-run capture** — if local run is impossible: capture genuine output from a real deployed run (logs, traces from an observability platform). Upload and embed as above.
+4. **Author-screenshot placeholder** — absolute last resort only when no real-run output is reachable: emit an explicit, clearly-labeled placeholder instructing the author to attach a REAL screenshot. The placeholder must make it unmistakable that a mock or invention is not acceptable. This is the ONLY non-automated fallback — it is never pasted terminal text.
+
+## Evidence Routing
+
+Reuse the same diff categorization used for diagram selection to pick the capture path. Every branch MUST terminate in an embedded `![](url)` derived from real captured output — text, fenced code blocks, and test runs are not evidence.
+
+```
+Categorize diff ->
+  backend / API / service? -> run locally (venv, stub only unavoidable external deps)
+                              -> exercise with real requests (positive + contrast case)
+                              -> capture stdout/logs + HTTP responses to files
+                              -> render verbatim captured content to PNG via Playwright
+                              -> upload as pr-evidence release asset -> embed
+  UI?                      -> run app locally
+                              -> drive real screen with Playwright -> screenshot actual UI
+                              -> before + after PNGs -> upload as release assets
+                              -> embed in Before|After table
+                              (new component -> after-only, no empty Before cell)
+  CLI / hooks / scripts?   -> run real command -> capture real output to file
+                              -> render captured output to PNG -> upload -> embed
+  everything else          -> image of end-to-end flow actually running
+  (refactor, docs, config)    -> follow closest branch above for the dominant artifact type
+
+ALL branches MUST end in ![](url) showing the real system running.
+A text/code-block artifact, a mocked card, a fabricated screenshot, or an illustration is a DEFECT.
+```
+
+**Validated hosting**: the draft-release asset approach above has been validated end-to-end on a private repo — the image renders inline in a PR comment for a logged-in reviewer. Use it for all change types.
 
 ## Diagram Guidelines
 
@@ -175,6 +274,7 @@ Use consistent colors across all diagrams:
 10. **Check the PR type boxes**: Mark the appropriate checkboxes
 11. **Remove template boilerplate**: Delete any default PR template instructions
 12. **Link Linear issues**: If there are associated Linear issues, link them at the bottom
+13. **Evidence is always a real-run embedded image**: Evidence MUST be a real embedded image `![](url)` derived from genuine captured output of the change actually working — for EVERY PR type (backend, UI, refactor, docs, CLI, hooks). Fabricating, illustrating, or mocking evidence is a defect. Pasted terminal text, `<pre>` blocks, and fenced code blocks are NOT acceptable evidence. The only permitted fallback is an explicit author-screenshot placeholder (for genuinely unrunnable services) that itself resolves to an embedded image once filled with a REAL screenshot.
 
 ## Diagram Decision Tree
 
@@ -218,3 +318,8 @@ GitHub's Mermaid renderer is strict. Follow these rules to avoid parse errors:
 - Don't leave the default PR template unfilled
 - Don't create overly complex diagrams - keep them focused on the key change
 - Don't use more than 3 diagrams unless the PR is very complex
+- Don't present pasted terminal output, logs, or a test run (even red → green) as evidence — evidence is an image of the real thing working, embedded as `![](url)`.
+- Don't fabricate, illustrate, or mock the evidence image — the image content must be copied verbatim from actual captured output (files written during a real local or deployed run).
+- Don't use branch-based raw.githubusercontent.com URLs for evidence — use draft-release asset URLs via `gh release upload` (validated to render on private repos).
+- Don't auto-checkout the base branch to capture UI before-state — drive the real app locally with Playwright for before/after screenshots.
+- Don't skip the real run because the service "seems simple" — even a trivial handler must be exercised for real before claiming it works.
